@@ -1,0 +1,325 @@
+#BoxMove(y, x), 测试是否可以把移动中的方块移到(x, y)的位置, 返回0则可以, 1不可以
+function BoxMove()
+{
+        local j i x y xTest yTest
+        yTest=$1
+        xTest=$2
+        for ((j = 0; j < 8; j += 2))
+        do
+                ((i = j + 1))
+                ((y = ${boxCur[$j]} + yTest))
+                ((x = ${boxCur[$i]} + xTest))
+                if (( y < 0 || y >= iTrayHeight || x < 0 || x >= iTrayWidth))
+                then
+                        #撞到墙壁了
+                        return 1
+                fi
+                if ((${iMap[y * iTrayWidth + x]} != -1 ))
+                then
+                        #撞到其他已经存在的方块了
+                        return 1
+                fi
+        done
+        return 0;
+}
+ 
+ 
+#将当前移动中的方块放到背景方块中去,
+#计算新的分数和速度级。(即一次方块落到底部)
+function Box2Map()
+{
+        local j i x y xp yp line
+ 
+        #将当前移动中的方块放到背景方块中去
+        for ((j = 0; j < 8; j += 2))
+        do
+                ((i = j + 1))
+                ((y = ${boxCur[$j]} + boxCurY))
+                ((x = ${boxCur[$i]} + boxCurX))
+                ((i = y * iTrayWidth + x))
+                iMap[$i]=$cBoxCur
+        done
+ 
+        #消去可被消去的行
+        line=0
+        for ((j = 0; j < iTrayWidth * iTrayHeight; j += iTrayWidth))
+        do
+                for ((i = j + iTrayWidth - 1; i >= j; i--))
+                do
+                        if ((${iMap[$i]} == -1)); then break; fi
+                done
+                if ((i >= j)); then continue; fi
+ 
+                ((line++))
+                for ((i = j - 1; i >= 0; i--))
+                do
+                        ((x = i + iTrayWidth))
+                        iMap[$x]=${iMap[$i]}
+                done
+                for ((i = 0; i < iTrayWidth; i++))
+                do
+                        iMap[$i]=-1
+                done
+        done
+ 
+        if ((line == 0)); then return; fi
+ 
+        #根据消去的行数line计算分数和速度级
+        ((x = iLeft + iTrayWidth * 2 + 7))
+        ((y = iTop + 11))
+        ((iScore += line * 2 - 1))
+        #显示新的分数
+        echo -ne "\033[1m\033[3${cScoreValue}m\033[${y};${x}H${iScore}         "
+        if ((iScore % iScoreEachLevel < line * 2 - 1))
+        then
+                if ((iLevel < 20))
+                then
+                        ((iLevel++))
+                        ((y = iTop + 14))
+                        #显示新的速度级
+                        echo -ne "\033[3${cScoreValue}m\033[${y};${x}H${iLevel}        "
+                fi
+        fi
+        echo -ne "\033[0m"
+        #重新显示背景方块
+        for ((y = 0; y < iTrayHeight; y++))
+        do
+                ((yp = y + iTrayTop + 1))
+                ((xp = iTrayLeft + 1))
+                ((i = y * iTrayWidth))
+                echo -ne "\033[${yp};${xp}H"
+                for ((x = 0; x < iTrayWidth; x++))
+                do
+                        ((j = i + x))
+                        if ((${iMap[$j]} == -1))
+                        then
+                                echo -ne "  "
+                        else
+                                echo -ne "\033[1m\033[7m\033[3${iMap[$j]}m\033[4${iMap[$j]}m[]\033[0m"
+                        fi
+                done
+        done
+}
+  
+#下落一行
+function BoxDown()
+{
+        local y s
+        ((y = boxCurY + 1))        #新的y坐标
+        if BoxMove $y $boxCurX        #测试是否可以下落一行
+        then
+                s="`DrawCurBox 0`"        #将旧的方块抹去
+                ((boxCurY = y))
+                s="$s`DrawCurBox 1`"        #显示新的下落后方块
+                echo -ne $s
+        else
+                #走到这儿, 如果不能下落了
+                Box2Map                #将当前移动中的方块贴到背景方块中
+                RandomBox        #产生新的方块
+        fi
+}
+ 
+#左移一列
+function BoxLeft()
+{
+        local x s
+        ((x = boxCurX - 1))
+        if BoxMove $boxCurY $x
+        then
+                s=`DrawCurBox 0`
+                ((boxCurX = x))
+                s=$s`DrawCurBox 1`
+                echo -ne $s
+        fi
+}
+ 
+#右移一列
+function BoxRight()
+{
+        local x s
+        ((x = boxCurX + 1))
+        if BoxMove $boxCurY $x
+        then
+                s=`DrawCurBox 0`
+                ((boxCurX = x))
+                s=$s`DrawCurBox 1`
+                echo -ne $s
+        fi
+}
+ 
+ 
+#下落到底
+function BoxAllDown()
+{
+        local k j i x y iDown s
+        iDown=$iTrayHeight
+ 
+        #计算一共需要下落多少行
+        for ((j = 0; j < 8; j += 2))
+        do
+                ((i = j + 1))
+                ((y = ${boxCur[$j]} + boxCurY))
+                ((x = ${boxCur[$i]} + boxCurX))
+                for ((k = y + 1; k < iTrayHeight; k++))
+                do
+                        ((i = k * iTrayWidth + x))
+                        if (( ${iMap[$i]} != -1)); then break; fi
+                done
+                ((k -= y + 1))
+                if (( $iDown > $k )); then iDown=$k; fi
+        done
+ 
+        s=`DrawCurBox 0`        #将旧的方块抹去
+        ((boxCurY += iDown))
+        s=$s`DrawCurBox 1`        #显示新的下落后的方块
+        echo -ne $s
+        Box2Map                #将当前移动中的方块贴到背景方块中
+        RandomBox        #产生新的方块
+}
+ 
+ 
+#旋转方块
+function BoxRotate()
+{
+        local iCount iTestRotate boxTest j i s
+        iCount=${countBox[$iBoxCurType]}        #当前的方块经旋转可以产生的样式的数目
+ 
+        #计算旋转后的新的样式
+        ((iTestRotate = iBoxCurRotate + 1))
+        if ((iTestRotate >= iCount))
+        then
+                ((iTestRotate = 0))
+        fi
+ 
+        #更新到新的样式, 保存老的样式(但不显示)
+        for ((j = 0, i = (${offsetBox[$iBoxCurType]} + $iTestRotate) * 8; j < 8; j++, i++))
+        do
+                boxTest[$j]=${boxCur[$j]}
+                boxCur[$j]=${box[$i]}
+        done
+ 
+        if BoxMove $boxCurY $boxCurX        #测试旋转后是否有空间放的下
+        then
+                #抹去旧的方块
+                for ((j = 0; j < 8; j++))
+                do
+                        boxCur[$j]=${boxTest[$j]}
+                done
+                s=`DrawCurBox 0`
+ 
+                #画上新的方块
+                for ((j = 0, i = (${offsetBox[$iBoxCurType]} + $iTestRotate) * 8; j < 8; j++, i++))
+                do
+                        boxCur[$j]=${box[$i]}
+                done
+                s=$s`DrawCurBox 1`
+                echo -ne $s
+                iBoxCurRotate=$iTestRotate
+        else
+                #不能旋转，还是继续使用老的样式
+                for ((j = 0; j < 8; j++))
+                do
+                        boxCur[$j]=${boxTest[$j]}
+                done
+        fi
+}
+
+#DrawCurBox(bDraw), 绘制当前移动中的方块, bDraw为1, 画上, bDraw为0, 抹去方块。
+function DrawCurBox()
+{
+        local i j t bDraw sBox s
+        bDraw=$1
+ 
+        s=""
+        if (( bDraw == 0 ))
+        then
+                sBox="\040\040"
+        else
+                sBox="[]"
+                s=$s"\033[1m\033[7m\033[3${cBoxCur}m\033[4${cBoxCur}m"
+        fi
+ 
+        for ((j = 0; j < 8; j += 2))
+        do
+                ((i = iTrayTop + 1 + ${boxCur[$j]} + boxCurY))
+                ((t = iTrayLeft + 1 + 2 * (boxCurX + ${boxCur[$j + 1]})))
+                #\033[y;xH, 光标到(x, y)处
+                s=$s"\033[${i};${t}H${sBox}"
+        done
+        s=$s"\033[0m"
+        echo -n $s
+}
+ 
+ 
+#更新新的方块
+function RandomBox()
+{
+        local i j t
+ 
+        #更新当前移动的方块
+        iBoxCurType=${iBoxNewType}
+        iBoxCurRotate=${iBoxNewRotate}
+        cBoxCur=${cBoxNew}
+        for ((j = 0; j < ${#boxNew[@]}; j++))
+        do
+                boxCur[$j]=${boxNew[$j]}
+        done
+ 
+ 
+        #显示当前移动的方块
+        if (( ${#boxCur[@]} == 8 ))
+        then
+                #计算当前方块该从顶端哪一行"冒"出来
+                for ((j = 0, t = 4; j < 8; j += 2))
+                do
+                        if ((${boxCur[$j]} < t)); then t=${boxCur[$j]}; fi
+                done
+                ((boxCurY = -t))
+                for ((j = 1, i = -4, t = 20; j < 8; j += 2))
+                do
+                        if ((${boxCur[$j]} > i)); then i=${boxCur[$j]}; fi
+                        if ((${boxCur[$j]} < t)); then t=${boxCur[$j]}; fi
+                done
+                ((boxCurX = (iTrayWidth - 1 - i - t) / 2))
+ 
+                #显示当前移动的方块
+                echo -ne `DrawCurBox 1`
+ 
+                #如果方块一出来就没处放，Game over!
+                if ! BoxMove $boxCurY $boxCurX
+                then
+                        kill -$sigExit ${PPID}
+                        ShowExit
+                fi
+        fi
+ 
+ 
+ 
+        #清除右边预显示的方块
+        for ((j = 0; j < 4; j++))
+        do
+                ((i = iTop + 1 + j))
+                ((t = iLeft + 2 * iTrayWidth + 7))
+                echo -ne "\033[${i};${t}H        "
+        done
+ 
+        #随机产生新的方块
+        ((iBoxNewType = RANDOM % ${#offsetBox[@]}))
+        ((iBoxNewRotate = RANDOM % ${countBox[$iBoxNewType]}))
+        for ((j = 0, i = (${offsetBox[$iBoxNewType]} + $iBoxNewRotate) * 8; j < 8; j++, i++))
+        do
+                boxNew[$j]=${box[$i]};
+        done
+ 
+        ((cBoxNew = ${colorTable[RANDOM % ${#colorTable[@]}]}))
+ 
+        #显示右边预显示的方块
+        echo -ne "\033[1m\033[7m\033[3${cBoxNew}m\033[4${cBoxNew}m"
+        for ((j = 0; j < 8; j += 2))
+        do
+                ((i = iTop + 1 + ${boxNew[$j]}))
+                ((t = iLeft + 2 * iTrayWidth + 7 + 2 * ${boxNew[$j + 1]}))
+                echo -ne "\033[${i};${t}H[]"
+        done
+        echo -ne "\033[0m"
+}
